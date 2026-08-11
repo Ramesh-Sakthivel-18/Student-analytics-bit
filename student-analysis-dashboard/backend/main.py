@@ -1,0 +1,165 @@
+from fastapi import FastAPI, Query, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import List, Optional
+
+from data_service import (
+    load_data, get_dashboard_summary, get_subject_analytics,
+    get_top_performers, get_class_division, get_grade_distribution,
+    get_batch_comparison, get_at_risk_students
+)
+
+from model_service import (
+    verify_model_loaded, predict_single, parse_and_predict_excel
+)
+
+app = FastAPI(title="Academic Intelligence Platform API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Load existing student data into memory at startup
+print("Loading data from Excel files...")
+STUDENT_DATA = load_data()
+print(f"Loaded {len(STUDENT_DATA)} student records.")
+
+
+class SinglePredictionRequest(BaseModel):
+    student_id: str = Field(..., example="7376221CS101")
+    student_name: str = Field(..., example="John Doe")
+    internal_marks: List[float] = Field(..., example=[35.0, 42.0, 18.0, 30.0, 22.0])
+
+
+# ==========================================
+# Prediction Engine Endpoints
+# ==========================================
+
+@app.get("/api/health")
+def health_check():
+    """Verifies API health and model file availability."""
+    model_status = verify_model_loaded()
+    return {
+        "status": "ok",
+        "model_status": model_status
+    }
+
+
+@app.post("/api/predict/single")
+def predict_single_student(payload: SinglePredictionRequest):
+    """Predicts pass/fail probabilities and risk status for a single student."""
+    try:
+        res = predict_single(
+            student_id=payload.student_id,
+            student_name=payload.student_name,
+            internal_marks=payload.internal_marks
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+
+
+@app.post("/api/predict/bulk")
+async def predict_bulk_excel(file: UploadFile = File(...)):
+    """Accepts multipart file upload (.xlsx / .xls) and runs batch predictions."""
+    if not (file.filename.endswith(".xlsx") or file.filename.endswith(".xls")):
+        raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel file (.xlsx or .xls).")
+    
+    try:
+        content = await file.read()
+        res = parse_and_predict_excel(content)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process Excel file: {str(e)}")
+
+
+# ==========================================
+# Existing Dashboard Endpoints
+# ==========================================
+
+@app.get("/api/dashboard/summary")
+def dashboard_summary(semester: str = Query("All")):
+    return get_dashboard_summary(STUDENT_DATA, semester)
+
+
+@app.get("/api/students")
+def list_students(semester: str = Query("All"), search: str = Query("")):
+    data = STUDENT_DATA
+    if semester and semester != "All":
+        data = [s for s in data if s["semester"] == semester]
+        
+    if search:
+        search = search.lower()
+        data = [s for s in data if search in s["registerNumber"].lower() or search in s["name"].lower()]
+        
+    return [{
+        "registerNumber": s["registerNumber"],
+        "name": s["name"],
+        "semester": s["semester"],
+        "gpa": s["gpa"],
+        "result": s["result"],
+        "failCount": s["failCount"]
+    } for s in data]
+
+
+@app.get("/api/students/{register_number}")
+def student_details(register_number: str):
+    records = [s for s in STUDENT_DATA if s["registerNumber"] == register_number]
+    if not records:
+        return {"error": "Student not found"}
+    return {
+        "registerNumber": records[0]["registerNumber"],
+        "name": records[0]["name"],
+        "records": records
+    }
+
+
+@app.get("/api/dashboard/subject-analytics")
+def subject_analytics(semester: str = Query("All")):
+    return get_subject_analytics(STUDENT_DATA, semester)
+
+
+@app.get("/api/dashboard/semester-trends")
+def semester_trends():
+    semesters = ["I", "III", "V", "VII"]
+    trends = []
+    for sem in semesters:
+        sem_data = [s for s in STUDENT_DATA if s["semester"] == sem]
+        if sem_data:
+            gpas = [s["gpa"] for s in sem_data if s["gpa"] > 0]
+            avg_gpa = round(sum(gpas) / len(gpas), 2) if gpas else 0
+            trends.append({
+                "semester": sem,
+                "averageGpa": avg_gpa,
+                "studentCount": len(sem_data)
+            })
+    return trends
+
+
+@app.get("/api/dashboard/top-performers")
+def top_performers(semester: str = Query("All"), limit: int = Query(5)):
+    return get_top_performers(STUDENT_DATA, semester, limit)
+
+
+@app.get("/api/dashboard/class-division")
+def class_division(semester: str = Query("All")):
+    return get_class_division(STUDENT_DATA, semester)
+
+
+@app.get("/api/dashboard/grade-distribution")
+def grade_distribution(semester: str = Query("All")):
+    return get_grade_distribution(STUDENT_DATA, semester)
+
+
+@app.get("/api/dashboard/batch-comparison")
+def batch_comparison():
+    return get_batch_comparison(STUDENT_DATA)
+
+
+@app.get("/api/dashboard/at-risk")
+def at_risk_students(semester: str = Query("All")):
+    return get_at_risk_students(STUDENT_DATA, semester)
