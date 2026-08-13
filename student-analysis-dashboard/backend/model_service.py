@@ -90,14 +90,27 @@ def compute_features(marks: list[float]) -> dict:
 
 def predict_single(student_id: str, student_name: str, internal_marks: list[float]) -> dict:
     model, features = load_model_if_needed()
-    feat_dict = compute_features(internal_marks)
     
-    # Construct input dataframe matching feature names
+    valid_marks = []
+    for m in internal_marks:
+        try:
+            val = float(m)
+            if not np.isnan(val):
+                valid_marks.append(val)
+        except (ValueError, TypeError):
+            continue
+            
+    if valid_marks and max(valid_marks) <= 25.0:
+        valid_marks = [m * 2.0 for m in valid_marks]
+        
+    feat_dict = compute_features(valid_marks)
+    
+    # Construct input dataframe matching exact feature names
     df_features = pd.DataFrame([{
         'Avg_Internal': feat_dict["avg_internal"],
         'Min_Internal': feat_dict["min_internal"],
         'Low_Internal_Count': feat_dict["low_internal_count"]
-    }], columns=features)
+    }], columns=['Avg_Internal', 'Min_Internal', 'Low_Internal_Count'])
 
     probs = model.predict_proba(df_features)[0]
     pass_prob = round(float(probs[0]) * 100, 2)
@@ -119,45 +132,45 @@ def predict_single(student_id: str, student_name: str, internal_marks: list[floa
 def parse_and_predict_excel(file_bytes: bytes) -> dict:
     """
     Parses dynamic college Excel sheets or simple mark tables,
-    extracts internal marks per student, and computes batch predictions.
+    extracts internal marks per student, scales if necessary,
+    and computes batch predictions aligned with XGBoost features.
     """
     model, features = load_model_if_needed()
     
     df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
     
-    header_idx = -1
-    sub_header_idx = -1
+    im_cols = []
+    reg_col = None
+    name_col = None
+    start_row = -1
     
-    # Check if this is a complex college result sheet with "IM" / "GPA"
+    # Fix 1: Dynamic Multi-Row Header Search
     for i, row in df_raw.iterrows():
         row_str = row.astype(str).str.strip().str.upper().values
-        if "GPA" in row_str or "REGISTER NUMBER" in row_str or "REGISTER NO" in row_str or "REG NO" in row_str:
-            if header_idx == -1:
-                header_idx = i
-        if "IM" in row_str and "EM" in row_str:
-            sub_header_idx = i
-            break
+        if 'IM' in row_str or 'EM' in row_str or 'TOTAL' in row_str:
+            im_cols = [j for j, val in enumerate(row_str) if val == 'IM']
+            
+            if im_cols:
+                start_row = i + 1
+                
+                # Check for REG / NAME in the current row and the row above
+                search_rows = [(i, row_str)]
+                if i > 0:
+                    search_rows.insert(0, (i - 1, df_raw.iloc[i-1].astype(str).str.strip().str.upper().values))
+                
+                for r_idx, r_vals in search_rows:
+                    for j, val in enumerate(r_vals):
+                        v_str = str(val).strip().upper()
+                        if ("REGISTER" in v_str or "REG" in v_str or "ROLL" in v_str) and reg_col is None:
+                            reg_col = j
+                        if ("NAME" in v_str) and name_col is None:
+                            name_col = j
+                break
 
     student_records = []
     
-    if sub_header_idx != -1:
-        # Complex College Result Sheet format
-        header_row = df_raw.iloc[header_idx] if header_idx != -1 else df_raw.iloc[sub_header_idx - 1]
-        sub_row = df_raw.iloc[sub_header_idx]
-
-        # Locate columns
-        im_cols = [j for j, val in enumerate(sub_row) if str(val).strip().upper() == 'IM']
-        
-        reg_col = None
-        name_col = None
-        for j, val in enumerate(df_raw.iloc[header_idx if header_idx != -1 else sub_header_idx - 1]):
-            val_s = str(val).strip().upper()
-            if "REGISTER" in val_s or "REG" in val_s or "ROLL" in val_s:
-                reg_col = j
-            elif "NAME" in val_s:
-                name_col = j
-                
-        start_row = sub_header_idx + 1
+    # Fix 2: Robust Row & Mark Extraction
+    if im_cols:
         for i in range(start_row, len(df_raw)):
             row = df_raw.iloc[i]
             
@@ -182,7 +195,7 @@ def parse_and_predict_excel(file_bytes: bytes) -> dict:
                     "marks": im_values
                 })
     else:
-        # Simple Excel file with table headers in row 0 or 1
+        # Fallback for simple table format without 'IM' markers
         h_idx = 0
         for i in range(min(5, len(df_raw))):
             row_vals = [str(x).strip().upper() for x in df_raw.iloc[i]]
@@ -190,8 +203,7 @@ def parse_and_predict_excel(file_bytes: bytes) -> dict:
                 h_idx = i
                 break
                 
-        df_simple = pd.read_excel(io.BytesIO(file_bytes), header=h_idx)
-        df_simple = df_simple.dropna(how="all")
+        df_simple = pd.read_excel(io.BytesIO(file_bytes), header=h_idx).dropna(how="all")
         
         reg_col_name = None
         name_col_name = None
@@ -218,9 +230,11 @@ def parse_and_predict_excel(file_bytes: bytes) -> dict:
                 try:
                     val = row[col]
                     if pd.notna(val):
-                        v_str = str(val).strip()
+                        v_str = str(val).strip().upper()
                         if v_str.replace('.', '', 1).isdigit():
                             im_values.append(float(v_str))
+                        elif v_str in ['AB', 'U', '-', 'W', 'NAN', '']:
+                            im_values.append(0.0)
                 except Exception:
                     continue
                     
@@ -243,20 +257,27 @@ def parse_and_predict_excel(file_bytes: bytes) -> dict:
             "students": []
         }
 
+    # Fix 3: Dynamic Scale Detection & Normalization
+    all_marks = [m for s in student_records for m in s["marks"]]
+    max_mark = max(all_marks) if all_marks else 0
+    scale_factor = 2.0 if (0 < max_mark <= 25.0) else 1.0
+
     # Batch Feature Extraction & Prediction
     feature_rows = []
     student_meta = []
     
     for s in student_records:
-        feat = compute_features(s["marks"])
+        scaled_marks = [m * scale_factor for m in s["marks"]]
+        feat = compute_features(scaled_marks)
         feature_rows.append({
             'Avg_Internal': feat["avg_internal"],
-            'Min_Internal': feat["min_internal"],
+            'Min_Internal': feat_dict["min_internal"] if 'feat_dict' in locals() else feat["min_internal"],
             'Low_Internal_Count': feat["low_internal_count"]
         })
         student_meta.append((s["id"], s["name"]))
 
-    df_batch = pd.DataFrame(feature_rows, columns=features)
+    # Fix 4: Feature Order Alignment for predict_proba
+    df_batch = pd.DataFrame(feature_rows, columns=['Avg_Internal', 'Min_Internal', 'Low_Internal_Count'])
     batch_probs = model.predict_proba(df_batch)
 
     students_out = []

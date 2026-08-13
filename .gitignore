@@ -83,3 +83,14 @@ Thumbs.db
 
 # Datasets
 dataset/
+
+# Personal Documents & Spreadsheets
+*.pdf
+*.xlsx
+*.xls
+*.csv
+*.doc
+*.docx
+
+# Ignore entire data folder
+student-analysis-dashboard/backend/data/
