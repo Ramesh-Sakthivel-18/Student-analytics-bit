@@ -23,23 +23,28 @@ export const predictBulk = async (file) => {
   return response.data;
 };
 
-export const getDashboardSummary = async (semester = 'All') => {
-  const response = await axios.get(`${API_URL}/dashboard/summary`, { params: { semester } });
+export const getDepartments = async () => {
+  const response = await axios.get(`${API_URL}/departments`);
+  return response.data.departments;
+};
+
+export const getDashboardSummary = async (department = 'All', semester = 'All') => {
+  const response = await axios.get(`${API_URL}/dashboard/summary`, { params: { department, semester } });
   return response.data;
 };
 
-export const getSemesterTrends = async () => {
-  const response = await axios.get(`${API_URL}/dashboard/semester-trends`);
+export const getSemesterTrends = async (department = 'All') => {
+  const response = await axios.get(`${API_URL}/dashboard/semester-trends`, { params: { department } });
   return response.data;
 };
 
-export const getSubjectAnalytics = async (semester = 'All') => {
-  const response = await axios.get(`${API_URL}/dashboard/subject-analytics`, { params: { semester } });
+export const getSubjectAnalytics = async (department = 'All', semester = 'All') => {
+  const response = await axios.get(`${API_URL}/dashboard/subject-analytics`, { params: { department, semester } });
   return response.data;
 };
 
-export const getStudents = async (semester = 'All', search = '') => {
-  const response = await axios.get(`${API_URL}/students`, { params: { semester, search } });
+export const getStudents = async (department = 'All', semester = 'All', search = '') => {
+  const response = await axios.get(`${API_URL}/students`, { params: { department, semester, search } });
   return response.data;
 };
 
@@ -48,27 +53,27 @@ export const getStudentDetails = async (registerNumber) => {
   return response.data;
 };
 
-export const getTopPerformers = async (semester = 'All', limit = 5) => {
-  const response = await axios.get(`${API_URL}/dashboard/top-performers`, { params: { semester, limit } });
+export const getTopPerformers = async (department = 'All', semester = 'All', limit = 5) => {
+  const response = await axios.get(`${API_URL}/dashboard/top-performers`, { params: { department, semester, limit } });
   return response.data;
 };
 
-export const getClassDivision = async (semester = 'All') => {
-  const response = await axios.get(`${API_URL}/dashboard/class-division`, { params: { semester } });
+export const getClassDivision = async (department = 'All', semester = 'All') => {
+  const response = await axios.get(`${API_URL}/dashboard/class-division`, { params: { department, semester } });
   return response.data;
 };
 
-export const getGradeDistribution = async (semester = 'All') => {
-  const response = await axios.get(`${API_URL}/dashboard/grade-distribution`, { params: { semester } });
+export const getGradeDistribution = async (department = 'All', semester = 'All') => {
+  const response = await axios.get(`${API_URL}/dashboard/grade-distribution`, { params: { department, semester } });
   return response.data;
 };
 
-export const getBatchComparison = async () => {
-  const response = await axios.get(`${API_URL}/dashboard/batch-comparison`);
+export const getBatchComparison = async (department = 'All') => {
+  const response = await axios.get(`${API_URL}/dashboard/batch-comparison`, { params: { department } });
   return response.data;
 };
 
-export const getAtRiskStudents = async (semester = 'All') => {
-  const response = await axios.get(`${API_URL}/dashboard/at-risk`, { params: { semester } });
+export const getAtRiskStudents = async (department = 'All', semester = 'All') => {
+  const response = await axios.get(`${API_URL}/dashboard/at-risk`, { params: { department, semester } });
   return response.data;
 };

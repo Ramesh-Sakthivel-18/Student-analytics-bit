@@ -29,11 +29,15 @@ STUDENT_DATA = load_data()
 print(f"Loaded {len(STUDENT_DATA)} student records.")
 
 
+class SubjectMark(BaseModel):
+    name: str
+    mark: float
+    max_score: float = 50.0
+
 class SinglePredictionRequest(BaseModel):
     student_id: str = Field(..., example="7376221CS101")
     student_name: str = Field(..., example="John Doe")
-    internal_marks: List[float] = Field(..., example=[35.0, 42.0, 18.0, 30.0, 22.0])
-
+    subjects: List[SubjectMark] = Field(..., example=[{"name": "Data Structures", "mark": 35.0, "max_score": 50.0}])
 
 # ==========================================
 # Prediction Engine Endpoints
@@ -53,10 +57,13 @@ def health_check():
 def predict_single_student(payload: SinglePredictionRequest):
     """Predicts pass/fail probabilities and risk status for a single student."""
     try:
+        subjects_list = []
+        if payload.subjects:
+            subjects_list = [s.dict() for s in payload.subjects] if hasattr(payload.subjects[0], 'dict') else [dict(s) for s in payload.subjects]
         res = predict_single(
             student_id=payload.student_id,
             student_name=payload.student_name,
-            internal_marks=payload.internal_marks
+            subjects=subjects_list
         )
         return res
     except Exception as e:
@@ -81,14 +88,21 @@ async def predict_bulk_excel(file: UploadFile = File(...)):
 # Existing Dashboard Endpoints
 # ==========================================
 
+@app.get("/api/departments")
+def get_departments():
+    departments = sorted(list(set([s.get("department") for s in STUDENT_DATA if s.get("department")])))
+    return {"departments": departments}
+
 @app.get("/api/dashboard/summary")
-def dashboard_summary(semester: str = Query("All")):
-    return get_dashboard_summary(STUDENT_DATA, semester)
+def dashboard_summary(department: str = Query("All"), semester: str = Query("All")):
+    return get_dashboard_summary(STUDENT_DATA, department, semester)
 
 
 @app.get("/api/students")
-def list_students(semester: str = Query("All"), search: str = Query("")):
+def list_students(department: str = Query("All"), semester: str = Query("All"), search: str = Query("")):
     data = STUDENT_DATA
+    if department and department != "All":
+        data = [s for s in data if s.get("department") == department]
     if semester and semester != "All":
         data = [s for s in data if s["semester"] == semester]
         
@@ -119,47 +133,36 @@ def student_details(register_number: str):
 
 
 @app.get("/api/dashboard/subject-analytics")
-def subject_analytics(semester: str = Query("All")):
-    return get_subject_analytics(STUDENT_DATA, semester)
+def subject_analytics(department: str = Query("All"), semester: str = Query("All")):
+    return get_subject_analytics(STUDENT_DATA, department, semester)
 
 
 @app.get("/api/dashboard/semester-trends")
-def semester_trends():
-    semesters = ["I", "III", "V", "VII"]
-    trends = []
-    for sem in semesters:
-        sem_data = [s for s in STUDENT_DATA if s["semester"] == sem]
-        if sem_data:
-            gpas = [s["gpa"] for s in sem_data if s["gpa"] > 0]
-            avg_gpa = round(sum(gpas) / len(gpas), 2) if gpas else 0
-            trends.append({
-                "semester": sem,
-                "averageGpa": avg_gpa,
-                "studentCount": len(sem_data)
-            })
-    return trends
+def semester_trends(department: str = Query("All")):
+    from data_service import get_semester_trends
+    return get_semester_trends(STUDENT_DATA, department)
 
 
 @app.get("/api/dashboard/top-performers")
-def top_performers(semester: str = Query("All"), limit: int = Query(5)):
-    return get_top_performers(STUDENT_DATA, semester, limit)
+def top_performers(department: str = Query("All"), semester: str = Query("All"), limit: int = Query(5)):
+    return get_top_performers(STUDENT_DATA, department, semester, limit)
 
 
 @app.get("/api/dashboard/class-division")
-def class_division(semester: str = Query("All")):
-    return get_class_division(STUDENT_DATA, semester)
+def class_division(department: str = Query("All"), semester: str = Query("All")):
+    return get_class_division(STUDENT_DATA, department, semester)
 
 
 @app.get("/api/dashboard/grade-distribution")
-def grade_distribution(semester: str = Query("All")):
-    return get_grade_distribution(STUDENT_DATA, semester)
+def grade_distribution(department: str = Query("All"), semester: str = Query("All")):
+    return get_grade_distribution(STUDENT_DATA, department, semester)
 
 
 @app.get("/api/dashboard/batch-comparison")
-def batch_comparison():
-    return get_batch_comparison(STUDENT_DATA)
+def batch_comparison(department: str = Query("All")):
+    return get_batch_comparison(STUDENT_DATA, department)
 
 
 @app.get("/api/dashboard/at-risk")
-def at_risk_students(semester: str = Query("All")):
-    return get_at_risk_students(STUDENT_DATA, semester)
+def at_risk_students(department: str = Query("All"), semester: str = Query("All")):
+    return get_at_risk_students(STUDENT_DATA, department, semester)

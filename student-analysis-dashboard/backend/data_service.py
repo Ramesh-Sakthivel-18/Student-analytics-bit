@@ -2,104 +2,121 @@ import pandas as pd
 import os
 import glob
 
-DATASET_PATH = r"D:\ramesh\student analysis\dataset\CSE NOV 2025"
+DATASET_PATH = r"D:\ramesh\student analysis\dataset\UG"
 SEMESTERS = ["I", "III", "V", "VII"]
 
 def load_data():
     all_students = []
     
-    for sem in SEMESTERS:
-        sem_dir = os.path.join(DATASET_PATH, sem)
-        excel_files = glob.glob(os.path.join(sem_dir, "*.xlsx"))
-        for file_path in excel_files:
-            try:
-                df = pd.read_excel(file_path, header=None)
-                
-                # Extract headers (Row 2 and Row 3)
-                row2 = df.iloc[2].ffill().astype(str)
-                row3 = df.iloc[3].fillna("").astype(str)
-                
-                # Create combined column names
-                col_names = []
-                for r2, r3 in zip(row2, row3):
-                    if r2 == "nan": r2 = ""
-                    if r3 == "nan" or not r3.strip(): 
-                        col_names.append(r2.strip())
-                    else:
-                        col_names.append(f"{r2.strip()}_{r3.strip()}")
-                
-                # Apply columns and drop header rows
-                df.columns = col_names
-                df = df.iloc[4:].dropna(subset=["Register Number"])
-                
-                # Parse student records
-                for _, row in df.iterrows():
-                    reg_num = str(row.get("Register Number", "")).strip()
-                    if not reg_num or reg_num == "nan":
-                        continue
-                    
-                    name = str(row.get("Name", "")).strip()
-                    result = str(row.get("Result", "")).strip()
-                    gpa = row.get("GPA", 0)
-                    try:
-                        gpa = float(gpa)
-                    except:
-                        gpa = 0.0
-                    
-                    # Extract subjects
-                    subjects = []
-                    subject_codes = set([c.split('_')[0] for c in col_names if '_' in c and len(c.split('_')) == 2])
-                    for sub in subject_codes:
-                        if not sub or sub == 'nan': continue
-                        im = row.get(f"{sub}_IM", 0)
-                        em = row.get(f"{sub}_EM", 0)
-                        tot = row.get(f"{sub}_TOT", 0)
-                        grd = row.get(f"{sub}_GRD", "")
-                        
-                        try: im = float(im) if pd.notna(im) else 0
-                        except: im = 0
-                        try: em = float(em) if pd.notna(em) else 0
-                        except: em = 0
-                        try: tot = float(tot) if pd.notna(tot) else 0
-                        except: tot = 0.0
-                        
-                        if pd.notna(grd) and str(grd).strip() != "":
-                            subjects.append({
-                                "code": sub,
-                                "im": im,
-                                "em": em,
-                                "tot": tot,
-                                "grd": str(grd).strip()
-                            })
+    if not os.path.exists(DATASET_PATH):
+        return []
 
-                    # Count failed subjects
-                    fail_subjects = [s for s in subjects if s["grd"] in ["U", "F", "RA"]]
+    for dept in os.listdir(DATASET_PATH):
+        dept_dir = os.path.join(DATASET_PATH, dept)
+        if not os.path.isdir(dept_dir): continue
+        
+        for sem in SEMESTERS:
+            # Check for both "I" and "I SEM" formats
+            sem_dir = os.path.join(dept_dir, sem)
+            if not os.path.exists(sem_dir):
+                sem_dir = os.path.join(dept_dir, f"{sem} SEM")
+            
+            if not os.path.exists(sem_dir):
+                continue
+                
+            excel_files = glob.glob(os.path.join(sem_dir, "*.xlsx"))
+            for file_path in excel_files:
+                try:
+                    df = pd.read_excel(file_path, header=None)
                     
-                    student = {
-                        "registerNumber": reg_num,
-                        "name": name,
-                        "semester": sem,
-                        "result": result,
-                        "gpa": gpa,
-                        "subjects": subjects,
-                        "failCount": len(fail_subjects)
-                    }
-                    all_students.append(student)
+                    # Extract headers (Row 2 and Row 3)
+                    row2 = df.iloc[2].ffill().astype(str)
+                    row3 = df.iloc[3].fillna("").astype(str)
                     
-            except Exception as e:
-                print(f"Error reading {file_path}: {e}")
+                    # Create combined column names
+                    col_names = []
+                    for r2, r3 in zip(row2, row3):
+                        if r2 == "nan": r2 = ""
+                        if r3 == "nan" or not r3.strip(): 
+                            col_names.append(r2.strip())
+                        else:
+                            col_names.append(f"{r2.strip()}_{r3.strip()}")
+                    
+                    # Apply columns and drop header rows
+                    df.columns = col_names
+                    df = df.iloc[4:].dropna(subset=["Register Number"])
+                    
+                    # Parse student records
+                    for _, row in df.iterrows():
+                        reg_num = str(row.get("Register Number", "")).strip()
+                        if not reg_num or reg_num == "nan":
+                            continue
+                        
+                        name = str(row.get("Name", "")).strip()
+                        result = str(row.get("Result", "")).strip()
+                        gpa = row.get("GPA", 0)
+                        try:
+                            gpa = float(gpa)
+                        except:
+                            gpa = 0.0
+                        
+                        # Extract subjects
+                        subjects = []
+                        subject_codes = set([c.split('_')[0] for c in col_names if '_' in c and len(c.split('_')) == 2])
+                        for sub in subject_codes:
+                            if not sub or sub == 'nan': continue
+                            im = row.get(f"{sub}_IM", 0)
+                            em = row.get(f"{sub}_EM", 0)
+                            tot = row.get(f"{sub}_TOT", 0)
+                            grd = row.get(f"{sub}_GRD", "")
+                            
+                            try: im = float(im) if pd.notna(im) else 0
+                            except: im = 0
+                            try: em = float(em) if pd.notna(em) else 0
+                            except: em = 0
+                            try: tot = float(tot) if pd.notna(tot) else 0
+                            except: tot = 0.0
+                            
+                            if pd.notna(grd) and str(grd).strip() != "":
+                                subjects.append({
+                                    "code": sub,
+                                    "im": im,
+                                    "em": em,
+                                    "tot": tot,
+                                    "grd": str(grd).strip()
+                                })
+
+                        # Count failed subjects
+                        fail_subjects = [s for s in subjects if s["grd"] in ["U", "F", "RA"]]
+                        
+                        student = {
+                            "registerNumber": reg_num,
+                            "name": name,
+                            "department": dept,
+                            "semester": sem,
+                            "result": result,
+                            "gpa": gpa,
+                            "subjects": subjects,
+                            "failCount": len(fail_subjects)
+                        }
+                        all_students.append(student)
+                        
+                except Exception as e:
+                    print(f"Error reading {file_path}: {e}")
                 
     return all_students
 
 
-def _filter_semester(data, semester):
+def _filter_data(data, department=None, semester=None):
+    if department and department != "All":
+        data = [s for s in data if s.get("department") == department]
     if semester and semester != "All":
-        return [s for s in data if s["semester"] == semester]
+        data = [s for s in data if s["semester"] == semester]
     return data
 
 
-def get_dashboard_summary(data, semester=None):
-    data = _filter_semester(data, semester)
+def get_dashboard_summary(data, department=None, semester=None):
+    data = _filter_data(data, department, semester)
     if not data:
         return {"totalStudents": 0, "averageGpa": 0, "highestGpa": 0, "lowestGpa": 0, "passCount": 0, "failCount": 0, "passPercentage": 0}
         
@@ -118,8 +135,8 @@ def get_dashboard_summary(data, semester=None):
     }
 
 
-def get_subject_analytics(data, semester=None):
-    data = _filter_semester(data, semester)
+def get_subject_analytics(data, department=None, semester=None):
+    data = _filter_data(data, department, semester)
     subject_stats = {}
     for s in data:
         for sub in s["subjects"]:
@@ -149,9 +166,9 @@ def get_subject_analytics(data, semester=None):
     return result
 
 
-def get_top_performers(data, semester=None, limit=5):
+def get_top_performers(data, department=None, semester=None, limit=5):
     """Get top N students by GPA for the selected semester."""
-    data = _filter_semester(data, semester)
+    data = _filter_data(data, department, semester)
     sorted_students = sorted(data, key=lambda x: x["gpa"], reverse=True)
     top = []
     for i, s in enumerate(sorted_students[:limit]):
@@ -165,9 +182,9 @@ def get_top_performers(data, semester=None, limit=5):
     return top
 
 
-def get_class_division(data, semester=None):
+def get_class_division(data, department=None, semester=None):
     """Categorize students into academic divisions based on GPA."""
-    data = _filter_semester(data, semester)
+    data = _filter_data(data, department, semester)
     divisions = {
         "distinction": 0,   # GPA >= 8.0
         "firstClass": 0,    # GPA 6.5 - 7.99
@@ -193,9 +210,9 @@ def get_class_division(data, semester=None):
     ]
 
 
-def get_grade_distribution(data, semester=None):
+def get_grade_distribution(data, department=None, semester=None):
     """Get grade distribution across all subjects for stacked bar chart."""
-    data = _filter_semester(data, semester)
+    data = _filter_data(data, department, semester)
     grade_order = ["S", "A+", "A", "B+", "B", "C", "U"]
     grade_counts = {g: 0 for g in grade_order}
     total = 0
@@ -217,12 +234,34 @@ def get_grade_distribution(data, semester=None):
     return result
 
 
-def get_batch_comparison(data):
+def get_semester_trends(data, department=None):
+    semesters = ["I", "III", "V", "VII"]
+    trends = []
+    
+    # Filter by department first if applicable
+    dept_data = _filter_data(data, department=department)
+    
+    for sem in semesters:
+        sem_data = [s for s in dept_data if s["semester"] == sem]
+        if sem_data:
+            gpas = [s["gpa"] for s in sem_data if s["gpa"] > 0]
+            avg_gpa = round(sum(gpas) / len(gpas), 2) if gpas else 0
+            trends.append({
+                "semester": sem,
+                "averageGpa": avg_gpa,
+                "studentCount": len(sem_data)
+            })
+    return trends
+
+def get_batch_comparison(data, department=None):
     """Grade distribution per semester for stacked bar comparison."""
     grade_order = ["S", "A+", "A", "B+", "B", "C", "U"]
     result = []
+    
+    dept_data = _filter_data(data, department=department)
+    
     for sem in SEMESTERS:
-        sem_data = [s for s in data if s["semester"] == sem]
+        sem_data = [s for s in dept_data if s["semester"] == sem]
         grade_counts = {g: 0 for g in grade_order}
         total = 0
         for s in sem_data:
@@ -239,9 +278,9 @@ def get_batch_comparison(data):
     return result
 
 
-def get_at_risk_students(data, semester=None):
+def get_at_risk_students(data, department=None, semester=None):
     """Categorize students into risk levels based on pure data rules."""
-    data = _filter_semester(data, semester)
+    data = _filter_data(data, department, semester)
     
     high_risk = []
     moderate_risk = []

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   Upload, FileSpreadsheet, AlertTriangle, CheckCircle2, 
   Plus, Trash2, Download, Search, Sparkles, BrainCircuit, 
-  RefreshCw, ShieldAlert, ArrowRight, Activity, Award, User
+  RefreshCw, ShieldAlert, ArrowRight, Activity, Award, User, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { predictSingle, predictBulk } from '../services/api';
 
@@ -16,16 +16,17 @@ const PredictionHub = () => {
   const [bulkResults, setBulkResults] = useState(null); // { summary, students }
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [expandedRows, setExpandedRows] = useState(new Set());
 
   // --- Single Prediction State ---
   const [studentId, setStudentId] = useState('7376221CS101');
   const [studentName, setStudentName] = useState('John Doe');
   const [subjectMarks, setSubjectMarks] = useState([
-    { name: 'Data Structures', mark: 35.0 },
-    { name: 'Computer Architecture', mark: 42.0 },
-    { name: 'Discrete Math', mark: 18.0 },
-    { name: 'Operating Systems', mark: 30.0 },
-    { name: 'Database Systems', mark: 22.0 },
+    { name: 'Data Structures', mark: 35.0, max_score: 50.0 },
+    { name: 'Computer Architecture', mark: 42.0, max_score: 50.0 },
+    { name: 'Discrete Math', mark: 18.0, max_score: 50.0 },
+    { name: 'Operating Systems', mark: 30.0, max_score: 50.0 },
+    { name: 'Database Systems', mark: 22.0, max_score: 50.0 },
   ]);
   const [singleLoading, setSingleLoading] = useState(false);
   const [singleError, setSingleError] = useState('');
@@ -33,7 +34,7 @@ const PredictionHub = () => {
 
   // Dynamic Subject handlers
   const handleAddSubject = () => {
-    setSubjectMarks([...subjectMarks, { name: `Subject ${subjectMarks.length + 1}`, mark: 30.0 }]);
+    setSubjectMarks([...subjectMarks, { name: `Subject ${subjectMarks.length + 1}`, mark: 30.0, max_score: 50.0 }]);
   };
 
   const handleRemoveSubject = (index) => {
@@ -43,11 +44,11 @@ const PredictionHub = () => {
 
   const handleMarkChange = (index, field, value) => {
     const updated = [...subjectMarks];
-    if (field === 'mark') {
+    if (field === 'mark' || field === 'max_score') {
       const parsed = parseFloat(value);
-      updated[index].mark = isNaN(parsed) ? 0 : parsed;
+      updated[index][field] = isNaN(parsed) ? 0 : parsed;
     } else {
-      updated[index].name = value;
+      updated[index][field] = value;
     }
     setSubjectMarks(updated);
   };
@@ -57,11 +58,10 @@ const PredictionHub = () => {
     setSingleLoading(true);
     setSingleError('');
     try {
-      const marksList = subjectMarks.map(s => s.mark);
       const res = await predictSingle({
         student_id: studentId,
         student_name: studentName,
-        internal_marks: marksList,
+        subjects: subjectMarks,
       });
       setSingleResult(res);
     } catch (err) {
@@ -69,6 +69,16 @@ const PredictionHub = () => {
     } finally {
       setSingleLoading(false);
     }
+  };
+
+  const toggleRow = (id) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedRows(newExpanded);
   };
 
   // Bulk File Upload handlers
@@ -102,6 +112,7 @@ const PredictionHub = () => {
     try {
       const res = await predictBulk(bulkFile);
       setBulkResults(res);
+      setExpandedRows(new Set());
     } catch (err) {
       setBulkError(err.response?.data?.detail || 'Failed to process bulk prediction file.');
     } finally {
@@ -112,16 +123,17 @@ const PredictionHub = () => {
   // CSV Export
   const handleExportCSV = () => {
     if (!bulkResults || !bulkResults.students.length) return;
-    const headers = ["Register No", "Student Name", "Avg Internal", "Min Internal", "Low Marks (<25)", "Pass Chance (%)", "Fail Chance (%)", "Risk Status"];
+    const headers = ["Register No", "Student Name", "Avg Internal %", "Min Internal %", "Low Marks (<50%)", "Pass Chance (%)", "Fail Chance (%)", "Risk Status", "At-Risk Subjects"];
     const rows = bulkResults.students.map(s => [
       `"${s.student_id}"`,
       `"${s.student_name}"`,
-      s.avg_internal,
-      s.min_internal,
+      s.avg_internal_pct,
+      s.min_internal_pct,
       s.low_internal_count,
       s.pass_probability,
       s.fail_probability,
-      `"${s.risk_status}"`
+      `"${s.risk_status}"`,
+      `"${s.at_risk_subjects ? s.at_risk_subjects.map(sub => `${sub.subject_code} (${sub.raw_score}/${sub.max_score})`).join('; ') : ''}"`
     ]);
 
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -147,13 +159,13 @@ const PredictionHub = () => {
 
   // Faculty Feedback logic
   const getFacultyRecommendation = (result) => {
-    const { low_internal_count, fail_probability, min_internal } = result;
+    const { low_internal_count, fail_probability, min_internal_pct } = result;
     if (fail_probability >= 50) {
-      return `CRITICAL INTERVENTION NEEDED: Student exhibits a high failure risk (${fail_probability}%). ${low_internal_count} subject(s) are strictly below 25 marks (Lowest: ${min_internal}). Immediate 1-on-1 academic counseling and mandatory remedial classes recommended.`;
+      return `CRITICAL INTERVENTION NEEDED: Student exhibits a high failure risk (${fail_probability}%). ${low_internal_count} subject(s) are strictly below 50% (Lowest: ${min_internal_pct}%). Immediate 1-on-1 academic counseling and mandatory remedial classes recommended.`;
     } else if (fail_probability >= 25) {
-      return `MODERATE MONITORING REQUIRED: Student shows moderate failure risk (${fail_probability}%). Has ${low_internal_count} subject(s) below 25. Faculty advisor should assign targeted practice assignments and monitor upcoming internal assessments.`;
+      return `MODERATE MONITORING REQUIRED: Student shows moderate failure risk (${fail_probability}%). Has ${low_internal_count} subject(s) below 50%. Faculty advisor should assign targeted practice assignments and monitor upcoming internal assessments.`;
     } else {
-      return `ACADEMIC PROGRESS ON TRACK: Student is predicted SAFE with ${result.pass_probability}% pass probability. Minimum internal mark is ${min_internal}. Encourage participation in advanced projects and peer tutoring.`;
+      return `ACADEMIC PROGRESS ON TRACK: Student is predicted SAFE with ${result.pass_probability}% pass probability. Minimum internal mark is ${min_internal_pct}%. Encourage participation in advanced projects and peer tutoring.`;
     }
   };
 
@@ -164,6 +176,7 @@ const PredictionHub = () => {
     if (filterStatus === 'HIGH_RISK') return matchesSearch && s.risk_status.includes('HIGH RISK');
     if (filterStatus === 'MEDIUM_RISK') return matchesSearch && s.risk_status.includes('MEDIUM RISK');
     if (filterStatus === 'SAFE') return matchesSearch && s.risk_status.includes('SAFE');
+    if (filterStatus === 'LOW_SUBJECTS') return matchesSearch && s.low_internal_count >= 2;
     return matchesSearch;
   }) : [];
 
@@ -381,7 +394,7 @@ const PredictionHub = () => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '0.25rem', background: '#f1f5f9', padding: '2px', borderRadius: '8px' }}>
-                      {['ALL', 'HIGH_RISK', 'MEDIUM_RISK', 'SAFE'].map(st => (
+                      {['ALL', 'HIGH_RISK', 'MEDIUM_RISK', 'SAFE', 'LOW_SUBJECTS'].map(st => (
                         <button
                           key={st}
                           onClick={() => setFilterStatus(st)}
@@ -396,7 +409,7 @@ const PredictionHub = () => {
                             color: filterStatus === st ? '#2563eb' : '#64748b',
                           }}
                         >
-                          {st.replace('_', ' ')}
+                          {st === 'LOW_SUBJECTS' ? '>=2 LOW SUBJ' : st.replace('_', ' ')}
                         </button>
                       ))}
                     </div>
@@ -428,12 +441,12 @@ const PredictionHub = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontWeight: 600 }}>
+                        <th style={{ padding: '0.75rem 1rem', width: '40px' }}></th>
                         <th style={{ padding: '0.75rem 1rem' }}>Register No</th>
                         <th style={{ padding: '0.75rem 1rem' }}>Student Name</th>
                         <th style={{ padding: '0.75rem 1rem' }}>Avg Internal</th>
-                        <th style={{ padding: '0.75rem 1rem' }}>Min Internal</th>
-                        <th style={{ padding: '0.75rem 1rem' }}>Pass Chance (%)</th>
-                        <th style={{ padding: '0.75rem 1rem' }}>Fail Chance (%)</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Pass Chance</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>At-Risk Subjects</th>
                         <th style={{ padding: '0.75rem 1rem' }}>Risk Status</th>
                       </tr>
                     </thead>
@@ -447,33 +460,91 @@ const PredictionHub = () => {
                       ) : (
                         filteredStudents.map((s, idx) => {
                           const badge = getBadgeStyle(s.risk_status);
+                          const isExpanded = expandedRows.has(s.student_id);
                           return (
-                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                              <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#1e293b' }}>{s.student_id}</td>
-                              <td style={{ padding: '0.75rem 1rem', color: '#334155' }}>{s.student_name}</td>
-                              <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>{s.avg_internal}</td>
-                              <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>{s.min_internal}</td>
-                              <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#10b981' }}>{s.pass_probability}%</td>
-                              <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: s.fail_probability >= 50 ? '#ef4444' : s.fail_probability >= 25 ? '#f59e0b' : '#64748b' }}>
-                                {s.fail_probability}%
-                              </td>
-                              <td style={{ padding: '0.75rem 1rem' }}>
-                                <span style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  padding: '0.25rem 0.65rem',
-                                  borderRadius: '9999px',
-                                  fontSize: '0.75rem',
-                                  fontWeight: 700,
-                                  background: badge.bg,
-                                  color: badge.text,
-                                  border: `1px solid ${badge.border}`
-                                }}>
-                                  {badge.icon}
-                                  {s.risk_status}
-                                </span>
-                              </td>
-                            </tr>
+                            <React.Fragment key={s.student_id || idx}>
+                              <tr 
+                                onClick={() => toggleRow(s.student_id)}
+                                style={{ 
+                                  borderBottom: '1px solid #f1f5f9', 
+                                  background: idx % 2 === 0 ? '#ffffff' : '#f8fafc',
+                                  cursor: 'pointer',
+                                  transition: 'background 0.2s'
+                                }}
+                              >
+                                <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>
+                                  {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#1e293b' }}>{s.student_id}</td>
+                                <td style={{ padding: '0.75rem 1rem', color: '#334155' }}>{s.student_name}</td>
+                                <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>{s.avg_internal_pct}%</td>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#10b981' }}>{s.pass_probability}%</td>
+                                <td style={{ padding: '0.75rem 1rem' }}>
+                                  {s.at_risk_subjects && s.at_risk_subjects.length > 0 ? (
+                                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                      {s.at_risk_subjects.map((sub, i) => (
+                                        <span 
+                                          key={i} 
+                                          title={`Raw: ${sub.raw_score} / Max: ${sub.max_score} (${sub.percentage}%)`}
+                                          style={{
+                                            background: '#fef2f2',
+                                            color: '#ef4444',
+                                            border: '1px solid #fca5a5',
+                                            padding: '0.2rem 0.5rem',
+                                            borderRadius: '6px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 600,
+                                            cursor: 'help'
+                                          }}
+                                        >
+                                          {sub.subject_code} ({sub.raw_score}/{sub.max_score})
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>None</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem' }}>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '0.25rem 0.65rem',
+                                    borderRadius: '9999px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    background: badge.bg,
+                                    color: badge.text,
+                                    border: `1px solid ${badge.border}`
+                                  }}>
+                                    {badge.icon}
+                                    {s.risk_status}
+                                  </span>
+                                </td>
+                              </tr>
+                              {isExpanded && (
+                                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                  <td colSpan={7} style={{ padding: '1rem 2rem' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                                      <div style={{ background: '#ffffff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>MIN INTERNAL %</div>
+                                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>{s.min_internal_pct}%</div>
+                                      </div>
+                                      <div style={{ background: '#ffffff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>FAIL PROBABILITY</div>
+                                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: s.fail_probability >= 50 ? '#ef4444' : s.fail_probability >= 25 ? '#f59e0b' : '#64748b' }}>
+                                          {s.fail_probability}%
+                                        </div>
+                                      </div>
+                                      <div style={{ background: '#ffffff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>SUBJECTS &lt; 50%</div>
+                                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: s.low_internal_count > 0 ? '#ef4444' : '#10b981' }}>{s.low_internal_count}</div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           );
                         })
                       )}
@@ -534,7 +605,7 @@ const PredictionHub = () => {
               <div style={{ marginBottom: '1.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                   <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
-                    Subject Internal Marks (Out of 50 / 100)
+                    Subject Internal Marks
                   </label>
                   <button
                     type="button"
@@ -570,12 +641,23 @@ const PredictionHub = () => {
                       <input
                         type="number"
                         min="0"
-                        max="100"
                         step="0.5"
                         value={sub.mark}
                         onChange={(e) => handleMarkChange(idx, 'mark', e.target.value)}
                         style={{ flex: 1, padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600, textAlign: 'center' }}
+                        placeholder="Mark"
                       />
+                      <span style={{color: '#94a3b8', fontSize: '1rem'}}>/</span>
+                      <select
+                        value={sub.max_score}
+                        onChange={(e) => handleMarkChange(idx, 'max_score', e.target.value)}
+                        style={{ padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', background: '#f8fafc', color: '#475569' }}
+                      >
+                        <option value="40">40</option>
+                        <option value="50">50</option>
+                        <option value="60">60</option>
+                        <option value="100">100</option>
+                      </select>
                       <button
                         type="button"
                         onClick={() => handleRemoveSubject(idx)}
@@ -690,23 +772,50 @@ const PredictionHub = () => {
                     <div style={{ width: `${singleResult.fail_probability}%`, background: '#ef4444', transition: 'width 0.5s ease-in-out' }}></div>
                   </div>
                 </div>
+                
+                {/* At-Risk Subjects List */}
+                {singleResult.at_risk_subjects && singleResult.at_risk_subjects.length > 0 && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '12px', padding: '1rem' }}>
+                    <div style={{ fontWeight: 600, color: '#b91c1c', marginBottom: '0.5rem', fontSize: '0.85rem' }}>Subjects At Risk (&lt; 50%)</div>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {singleResult.at_risk_subjects.map((sub, i) => (
+                        <span 
+                          key={i} 
+                          title={`Raw: ${sub.raw_score} / Max: ${sub.max_score} (${sub.percentage}%)`}
+                          style={{
+                            background: '#ffffff',
+                            color: '#ef4444',
+                            border: '1px solid #fca5a5',
+                            padding: '0.3rem 0.6rem',
+                            borderRadius: '6px',
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            cursor: 'help'
+                          }}
+                        >
+                          {sub.subject_code} ({sub.raw_score}/{sub.max_score})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Engineered Features Breakdown */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
                   <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                    <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>AVG INTERNAL</span>
-                    <span style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b' }}>{singleResult.avg_internal}</span>
+                    <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>AVG INTERNAL %</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b' }}>{singleResult.avg_internal_pct}</span>
                   </div>
 
                   <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                    <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>MIN INTERNAL</span>
-                    <span style={{ fontSize: '1.2rem', fontWeight: 700, color: singleResult.min_internal < 25 ? '#ef4444' : '#1e293b' }}>
-                      {singleResult.min_internal}
+                    <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>MIN INTERNAL %</span>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 700, color: singleResult.min_internal_pct < 50 ? '#ef4444' : '#1e293b' }}>
+                      {singleResult.min_internal_pct}
                     </span>
                   </div>
 
                   <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                    <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>LOW MARKS (&lt;25)</span>
+                    <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>LOW MARKS (&lt;50%)</span>
                     <span style={{ fontSize: '1.2rem', fontWeight: 700, color: singleResult.low_internal_count > 0 ? '#ef4444' : '#10b981' }}>
                       {singleResult.low_internal_count}
                     </span>

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getStudents } from '../services/api';
+import { getStudents, getDepartments } from '../services/api';
 import { Search, Download, Filter, ArrowRight } from 'lucide-react';
 
 const StudentsList = () => {
   const [students, setStudents] = useState([]);
+  const [department, setDepartment] = useState('All');
+  const [availableDepartments, setAvailableDepartments] = useState([]);
   const [semester, setSemester] = useState('All');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
@@ -12,12 +14,24 @@ const StudentsList = () => {
   const perPage = 20;
   const navigate = useNavigate();
 
-  useEffect(() => { setPage(1); fetchStudents(); }, [semester, search]);
+  useEffect(() => { 
+    const loadDepts = async () => {
+      try {
+        const depts = await getDepartments();
+        setAvailableDepartments(depts);
+      } catch (e) {
+        console.error("Error fetching departments", e);
+      }
+    };
+    loadDepts();
+  }, []);
+
+  useEffect(() => { setPage(1); fetchStudents(); }, [department, semester, search]);
 
   const fetchStudents = async () => {
     setLoading(true);
     try {
-      const data = await getStudents(semester, search);
+      const data = await getStudents(department, semester, search);
       setStudents(data);
     } catch (error) {
       console.error("Error fetching students", error);
@@ -51,6 +65,14 @@ const StudentsList = () => {
         </div>
         
         <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div className="semester-selector">
+            <select value={department} onChange={(e) => setDepartment(e.target.value)}>
+              <option value="All">All Departments</option>
+              {availableDepartments.map(dept => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+          </div>
           <div className="semester-selector">
             <select value={semester} onChange={(e) => setSemester(e.target.value)}>
               <option value="All">All Semesters</option>

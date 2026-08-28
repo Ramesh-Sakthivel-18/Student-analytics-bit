@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  getDashboardSummary, getSemesterTrends, getSubjectAnalytics,
+  getDepartments, getDashboardSummary, getSemesterTrends, getSubjectAnalytics,
   getTopPerformers, getClassDivision, getGradeDistribution,
   getBatchComparison, getAtRiskStudents
 } from '../services/api';
@@ -23,6 +23,8 @@ const GRADE_COLORS = {
 const DIVISION_COLORS = ['#059669', '#2563eb', '#f59e0b', '#ef4444'];
 
 const Dashboard = () => {
+  const [department, setDepartment] = useState('All');
+  const [availableDepartments, setAvailableDepartments] = useState([]);
   const [semester, setSemester] = useState('All');
   const [summary, setSummary] = useState(null);
   const [trends, setTrends] = useState([]);
@@ -35,20 +37,32 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => { fetchData(); }, [semester]);
+  useEffect(() => { 
+    const loadDepts = async () => {
+      try {
+        const depts = await getDepartments();
+        setAvailableDepartments(depts);
+      } catch (e) {
+        console.error("Error fetching departments", e);
+      }
+    };
+    loadDepts();
+  }, []);
+
+  useEffect(() => { fetchData(); }, [department, semester]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const [sumData, trendData, subData, topData, divData, gradeData, batchData, riskData] = await Promise.all([
-        getDashboardSummary(semester),
-        getSemesterTrends(),
-        getSubjectAnalytics(semester),
-        getTopPerformers(semester, 5),
-        getClassDivision(semester),
-        getGradeDistribution(semester),
-        getBatchComparison(),
-        getAtRiskStudents(semester)
+        getDashboardSummary(department, semester),
+        getSemesterTrends(department),
+        getSubjectAnalytics(department, semester),
+        getTopPerformers(department, semester, 5),
+        getClassDivision(department, semester),
+        getGradeDistribution(department, semester),
+        getBatchComparison(department),
+        getAtRiskStudents(department, semester)
       ]);
       setSummary(sumData);
       setTrends(trendData);
@@ -85,8 +99,16 @@ const Dashboard = () => {
 
   return (
     <div>
-      {/* Semester Filter */}
-      <div className="semester-filters">
+      {/* Filters */}
+      <div className="semester-filters" style={{ display: 'flex', gap: '1rem' }}>
+        <div className="semester-selector">
+          <select value={department} onChange={(e) => setDepartment(e.target.value)}>
+            <option value="All">All Departments</option>
+            {availableDepartments.map(dept => (
+              <option key={dept} value={dept}>{dept}</option>
+            ))}
+          </select>
+        </div>
         <div className="semester-selector">
           <select value={semester} onChange={(e) => setSemester(e.target.value)}>
             <option value="All">All Semesters</option>
